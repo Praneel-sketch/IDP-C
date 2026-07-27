@@ -96,35 +96,158 @@ def validate_region(
         )
 
     # Confidence-vs-agreement on events completed by 2021.
+    #
+    # Raw "does WC agree with the new state" mostly measures *between-
+    # product class semantics* (e.g. WC maps IO's sparse rangeland as bare
+    # in deserts, and post-clearing pasture as grassland where IO says
+    # crops — both confirmed on this benchmark). To measure the thing we
+    # care about — are detected CHANGES credible — event-pixel agreement is
+    # normalised by the same region's agreement on never-changed pixels of
+    # the same state: the "relative agreement ratio". Ratio ≈ 1 means a
+    # changed pixel is as credible as the product's static mapping of that
+    # state; the score-quartile breakdown tests whether higher confidence
+    # scores actually buy higher independent credibility.
     if 2021 in states:
         fields = extract_events(states, params)
         scores = score_events(fields, params)
-        tiers = tier_events(scores, fields, params)
         wc21 = fetch_worldcover_states(
             region.name, region.bbox, 2021, stack.crs, stack.transform, stack.shape
         )
         idx_2021 = region.years.index(2021)
         done = fields.event & (fields.year_index <= idx_2021) & (wc21 != NODATA)
-        tier_rows = {}
-        for tier, name in ((1, "low"), (2, "medium"), (3, "high")):
-            m = done & (tiers == tier)
-            n = int(m.sum())
-            if n:
-                agree = float((wc21[m] == fields.to_state[m]).mean())
-                tier_rows[name] = {"n_events": n, "wc2021_agrees_with_new_state": round(agree, 4)}
+        stable = (~fields.event) & (wc21 != NODATA)
+
+        # Per-state baseline: agreement on stable pixels of that state.
+        baseline: dict[int, float] = {}
+        for s in ANALYSIS_STATES:
+            m = stable & (states[2021] == s)
+            if int(m.sum()) >= 100:
+                baseline[s] = float((wc21[m] == s).mean())
+
+        def _relative(mask: np.ndarray) -> dict | None:
+            n = int(mask.sum())
+            if n < 50:
+                return None
+            num = den = w = 0.0
+            for s in ANALYSIS_STATES:
+                ms = mask & (fields.to_state == s)
+                ns = int(ms.sum())
+                if ns == 0 or s not in baseline or baseline[s] < 0.05:
+                    continue
+                num += float((wc21[ms] == s).mean()) * ns
+                den += baseline[s] * ns
+                w += ns
+            if den == 0:
+                return None
+            return {
+                "n_events": n,
+                "n_evaluated": int(w),
+                "agreement": round(num / max(w, 1), 4),
+                "baseline": round(den / max(w, 1), 4),
+                "relative_ratio": round(num / den, 3),
+            }
+
+        overall = _relative(done)
+        quartiles = {}
+        if int(done.sum()) >= 200:
+            qs = np.quantile(scores[done], [0.25, 0.5, 0.75])
+            bins = [
+                ("q1_lowest", done & (scores <= qs[0])),
+                ("q2", done & (scores > qs[0]) & (scores <= qs[1])),
+                ("q3", done & (scores > qs[1]) & (scores <= qs[2])),
+                ("q4_highest", done & (scores > qs[2])),
+            ]
+            for name, mask in bins:
+                row = _relative(mask)
+                if row:
+                    quartiles[name] = row
+
         result["confidence_vs_agreement"] = {
             "description": (
                 "Events whose new state was in place by 2021, checked against "
-                "WorldCover 2021 independently showing that state."
+                "WorldCover 2021. 'relative_ratio' normalises event-pixel "
+                "agreement by the region's stable-pixel agreement for the same "
+                "states, separating change credibility from between-product "
+                "class semantics."
             ),
-            "tiers": tier_rows,
+            "state_baselines": {
+                STATE_NAMES[s]: round(v, 4) for s, v in baseline.items()
+            },
+            "all_events": overall,
+            "score_quartiles": quartiles,
         }
+
+    result["holdout_consistency"] = holdout_consistency(states, region, params)
 
     out_dir = bundle_dir(region.name)
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "validation.json").write_text(json.dumps(result, indent=2) + "\n")
     (out_dir / "validation.md").write_text(render_validation_md(result))
     return result
+
+
+def holdout_consistency(
+    states: dict[int, np.ndarray],
+    region: RegionConfig,
+    params: AnalysisParams,
+    holdout_years: int = 2,
+) -> dict | None:
+    """Temporal holdout test of the confidence score, within the source
+    product.
+
+    Events and confidence are computed on a truncated series (the last
+    `holdout_years` withheld); a detected change is *verified* if the
+    claimed new state is still present in every held-out year. If the
+    confidence score measures what it claims (evidence that a change is
+    persistent rather than flicker), verification rates must rise with the
+    score. This tests the score's ranking value, not real-world truth —
+    misclassifications shared across all years of the product remain
+    invisible to it (stated limitation).
+    """
+    years = sorted(states)
+    if len(years) < params.persistence + 1 + holdout_years + 1:
+        return None
+    train_years = years[:-holdout_years]
+    held = years[-holdout_years:]
+    train = {y: states[y] for y in train_years}
+
+    fields = extract_events(train, params)
+    scores = score_events(fields, params)
+    if int(fields.event.sum()) < 200:
+        return {"n_events": int(fields.event.sum()), "note": "too few events"}
+
+    verified = fields.event.copy()
+    for y in held:
+        verified &= states[y] == fields.to_state
+
+    ev = fields.event
+    out_rows = {}
+    qs = np.quantile(scores[ev], [0.25, 0.5, 0.75])
+    bins = [
+        ("q1_lowest", ev & (scores <= qs[0])),
+        ("q2", ev & (scores > qs[0]) & (scores <= qs[1])),
+        ("q3", ev & (scores > qs[1]) & (scores <= qs[2])),
+        ("q4_highest", ev & (scores > qs[2])),
+    ]
+    for name, mask in bins:
+        n = int(mask.sum())
+        if n:
+            out_rows[name] = {
+                "n_events": n,
+                "verified_rate": round(float(verified[mask].sum()) / n, 4),
+            }
+    return {
+        "description": (
+            f"Events detected on {train_years[0]}–{train_years[-1]} only; "
+            f"verified = new state persists through {held[0]}–{held[-1]}. "
+            "Within-product test of the confidence score's ranking value."
+        ),
+        "train_years": train_years,
+        "holdout_years": held,
+        "n_events": int(ev.sum()),
+        "overall_verified_rate": round(float(verified.sum()) / int(ev.sum()), 4),
+        "score_quartiles": out_rows,
+    }
 
 
 def render_validation_md(v: dict) -> str:
@@ -149,17 +272,38 @@ def render_validation_md(v: dict) -> str:
             lines.append(f"  - {name}: {row['iou']:.2f}")
         lines.append("")
     cva = v.get("confidence_vs_agreement")
-    if cva and cva["tiers"]:
+    if cva:
         lines.append("## Confidence vs independent agreement")
         lines.append("")
         lines.append(cva["description"])
         lines.append("")
-        for name in ("high", "medium", "low"):
-            row = cva["tiers"].get(name)
-            if row:
-                lines.append(
-                    f"- {name}-confidence events: {row['n_events']:,} — WorldCover "
-                    f"agrees on {row['wc2021_agrees_with_new_state'] * 100:.1f}%"
-                )
+        if cva.get("all_events"):
+            a = cva["all_events"]
+            lines.append(
+                f"- all completed events (n={a['n_events']:,}): agreement "
+                f"{a['agreement'] * 100:.1f}% vs stable-pixel baseline "
+                f"{a['baseline'] * 100:.1f}% → relative ratio **{a['relative_ratio']}**"
+            )
+        for name, row in cva.get("score_quartiles", {}).items():
+            lines.append(
+                f"- {name} (n={row['n_events']:,}): agreement "
+                f"{row['agreement'] * 100:.1f}%, ratio {row['relative_ratio']}"
+            )
+        lines.append("")
+    ho = v.get("holdout_consistency")
+    if ho and ho.get("score_quartiles"):
+        lines.append("## Temporal holdout: does confidence predict persistence?")
+        lines.append("")
+        lines.append(ho["description"])
+        lines.append("")
+        lines.append(
+            f"- events on truncated series: {ho['n_events']:,}; overall verified "
+            f"in holdout: {ho['overall_verified_rate'] * 100:.1f}%"
+        )
+        for name, row in ho["score_quartiles"].items():
+            lines.append(
+                f"- {name} (n={row['n_events']:,}): verified "
+                f"{row['verified_rate'] * 100:.1f}%"
+            )
         lines.append("")
     return "\n".join(lines)

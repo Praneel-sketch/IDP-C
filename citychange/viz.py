@@ -22,7 +22,6 @@ import numpy as np
 from matplotlib.colors import ListedColormap
 from matplotlib.patches import Patch, Rectangle
 
-from citychange.analysis import Hotspot
 from citychange.landstate import (
     ANALYSIS_STATES,
     NODATA,
@@ -107,40 +106,170 @@ def plot_trends(
     return out_path
 
 
-def plot_change_map(
+def plot_change_events(
     final_grid: np.ndarray,
-    change_mask: np.ndarray,
-    hotspot: Hotspot,
+    event_mask: np.ndarray,
+    to_state: np.ndarray,
+    hotspots: list[dict],
+    stack,
     title: str,
     out_path: Path,
 ) -> Path:
-    """Grey basemap of the final year, changed pixels colored by the state
-    they became, hotspot block outlined."""
+    """Grey basemap of the final year, event pixels colored by the state
+    they became, top hotspot blocks outlined and numbered."""
+    from pyproj import Transformer
+
     fig, ax = plt.subplots(figsize=(9, 9))
     ax.imshow(final_grid != NODATA, cmap="gray", vmin=-3, vmax=1, interpolation="nearest")
 
-    changed = np.where(change_mask, final_grid, NODATA)
+    changed = np.where(event_mask, to_state, NODATA)
     masked = np.ma.masked_where(changed == NODATA, changed)
     ax.imshow(masked, cmap=_STATE_CMAP, norm=_STATE_NORM, interpolation="nearest")
 
-    ax.add_patch(
-        Rectangle(
-            (hotspot.col0 - 0.5, hotspot.row0 - 0.5),
-            hotspot.block_px,
-            hotspot.block_px,
-            fill=False,
-            edgecolor="black",
-            linewidth=2.5,
-            linestyle="--",
-            label="Strongest change hotspot",
-        )
-    )
+    if hotspots:
+        to_utm = Transformer.from_crs("EPSG:4326", stack.crs, always_xy=True)
+        inv = ~stack.transform
+        for h in hotspots:
+            x, y = to_utm.transform(h["lon"], h["lat"])
+            col, row = inv * (x, y)
+            half = h["block_m"] / 10 / 2
+            ax.add_patch(
+                Rectangle(
+                    (col - half, row - half),
+                    2 * half,
+                    2 * half,
+                    fill=False,
+                    edgecolor="black",
+                    linewidth=2,
+                    linestyle="--",
+                )
+            )
+            ax.annotate(
+                str(h["rank"]),
+                (col + half, row - half),
+                fontsize=11,
+                fontweight="bold",
+                color="black",
+            )
     present = _present_states([np.asarray(changed)])
     handles = _state_legend(present)
     handles.append(
-        Patch(facecolor="none", edgecolor="black", linestyle="--", label="Hotspot")
+        Patch(facecolor="none", edgecolor="black", linestyle="--", label="Hotspots")
     )
     ax.legend(handles=handles, loc="lower right", fontsize=9)
+    ax.set_title(title)
+    ax.axis("off")
+    fig.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    return out_path
+
+
+def plot_year_of_change(
+    yoc: np.ndarray, years: tuple[int, ...], title: str, out_path: Path
+) -> Path:
+    """When each changed pixel adopted its new state, on a grey base."""
+    fig, ax = plt.subplots(figsize=(9, 9))
+    ax.imshow(yoc >= 0, cmap="gray", vmin=-3, vmax=1, interpolation="nearest")
+    masked = np.ma.masked_where(yoc == 0, yoc)
+    im = ax.imshow(
+        masked,
+        cmap="viridis",
+        vmin=years[0],
+        vmax=years[-1],
+        interpolation="nearest",
+    )
+    cbar = fig.colorbar(im, ax=ax, shrink=0.7, ticks=list(years))
+    cbar.set_label("first year the new state appears (±1 year)")
+    ax.set_title(title)
+    ax.axis("off")
+    fig.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    return out_path
+
+
+def plot_volumes(
+    volumes: dict[int, dict[tuple[int, int], int]],
+    years: tuple[int, ...],
+    title: str,
+    out_path: Path,
+) -> Path:
+    """Stacked bars of change volume per event year, split by destination state."""
+    fig, ax = plt.subplots(figsize=(8, 5))
+    xs = list(years[1:])  # events can only be dated from the 2nd year on
+    bottoms = {y: 0.0 for y in xs}
+    for state in ANALYSIS_STATES:
+        vals = []
+        for y in xs:
+            px = sum(c for (f, t), c in volumes.get(y, {}).items() if t == state)
+            vals.append(px * 100 / 1e6)  # km²
+        if not any(vals):
+            continue
+        ax.bar(
+            xs,
+            vals,
+            bottom=[bottoms[y] for y in xs],
+            color=STATE_COLORS[state],
+            label=f"→ {STATE_LABELS[state]}",
+        )
+        for y, v in zip(xs, vals):
+            bottoms[y] += v
+    ax.set_xlabel("Year the new state first appears")
+    ax.set_ylabel("Changed area (km²)")
+    ax.set_title(title)
+    ax.grid(alpha=0.3, axis="y")
+    ax.legend(fontsize=9)
+    fig.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    return out_path
+
+
+_ARCHETYPE_COLORS = {
+    1: "#e8e6df",  # stable
+    2: "#c9c6ba",  # stable_with_flicker
+    3: "#d95f02",  # direct_change
+    4: "#7570b3",  # staged_change
+    5: "#1b9e77",  # reverted
+    6: "#66a61e",  # fluctuating
+    7: "#a6761d",  # unstable
+    8: "#e7298a",  # noisy_change
+}
+
+
+def plot_archetypes(archetypes: np.ndarray, title: str, out_path: Path) -> Path:
+    from citychange.trajectory import ARCHETYPE_NAMES
+
+    cmap = ListedColormap(["#ffffff"] + [_ARCHETYPE_COLORS[i] for i in range(1, 9)])
+    fig, ax = plt.subplots(figsize=(9, 9))
+    ax.imshow(archetypes, cmap=cmap, vmin=-0.5, vmax=8.5, interpolation="nearest")
+    handles = [
+        Patch(facecolor=_ARCHETYPE_COLORS[i], label=ARCHETYPE_NAMES[i].replace("_", " "))
+        for i in range(1, 9)
+        if (archetypes == i).any()
+    ]
+    ax.legend(handles=handles, loc="lower right", fontsize=8)
+    ax.set_title(title)
+    ax.axis("off")
+    fig.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    return out_path
+
+
+def plot_anomalies(
+    final_grid: np.ndarray, anomaly_mask: np.ndarray, title: str, out_path: Path
+) -> Path:
+    fig, ax = plt.subplots(figsize=(9, 9))
+    ax.imshow(final_grid != NODATA, cmap="gray", vmin=-3, vmax=1, interpolation="nearest")
+    masked = np.ma.masked_where(~anomaly_mask, anomaly_mask.astype(np.uint8))
+    ax.imshow(masked, cmap=ListedColormap(["#8b2fc9"]), interpolation="nearest")
+    ax.legend(handles=[Patch(facecolor="#8b2fc9", label="Statistically rare trajectory")], loc="lower right", fontsize=9)
     ax.set_title(title)
     ax.axis("off")
     fig.tight_layout()

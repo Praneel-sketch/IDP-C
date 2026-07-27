@@ -1,0 +1,15 @@
+# Mature dense urban control. Central Paris has been fully built for over a
+# century; a geographically honest system should report very little
+# persistent land-state change here.
+region:
+  name: paris_core
+  display_name: "Central Paris"
+  bbox:
+    west: 2.30
+    south: 48.83
+    east: 2.39
+    north: 48.88
+  years: [2017, 2018, 2019, 2020, 2021, 2022, 2023]
+  notes: >
+    Dense stable urban fabric; expectation is high stability and near-zero
+    event-based change.

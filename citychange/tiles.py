@@ -36,21 +36,35 @@ def tile_id(lon: float, lat: float) -> str:
 
 
 def tile_for_bbox(bbox: BBox) -> str:
-    """Tile containing the whole bbox.
+    """Tile containing the whole bbox; raises if it spans several.
 
-    v0.1 supports regions inside a single UTM tile. Multi-tile mosaicking is
-    deliberately deferred (see docs/DECISIONS.md); a clear error is better
-    than silently analysing a truncated region.
+    Kept for the single-tile fast path — arbitrary AOIs go through
+    tiles_for_bbox() + mosaicking in the acquisition layer.
     """
-    corners = {
-        tile_id(bbox.west, bbox.south),
-        tile_id(bbox.west, bbox.north),
-        tile_id(bbox.east, bbox.south),
-        tile_id(bbox.east, bbox.north),
-    }
-    if len(corners) != 1:
+    tiles = tiles_for_bbox(bbox)
+    if len(tiles) != 1:
         raise NotImplementedError(
-            f"bbox spans multiple UTM tiles {sorted(corners)}; "
-            "v0.1 supports single-tile regions only — shrink or shift the bbox"
+            f"bbox spans multiple UTM tiles {tiles}; use the mosaic path"
         )
-    return corners.pop()
+    return tiles[0]
+
+
+def band_lat_range(band: str) -> tuple[float, float]:
+    """South/north latitude limits of an MGRS band letter."""
+    if band == "X":
+        return 72.0, 84.0
+    idx = _LAT_BANDS.index(band)
+    return -80.0 + idx * 8, -80.0 + (idx + 1) * 8
+
+
+def zone_lon_range(zone: int) -> tuple[float, float]:
+    """West/east longitude limits of a UTM zone number."""
+    return -180.0 + (zone - 1) * 6, -180.0 + zone * 6
+
+
+def tiles_for_bbox(bbox: BBox) -> list[str]:
+    """All UTM zone/band tiles intersecting a bbox, west→east, south→north."""
+    z0, z1 = utm_zone(bbox.west), utm_zone(bbox.east)
+    b0, b1 = lat_band(bbox.south), lat_band(bbox.north)
+    bands = _LAT_BANDS[_LAT_BANDS.index(b0) : _LAT_BANDS.index(b1) + 1]
+    return [f"{z}{b}" for b in bands for z in range(z0, z1 + 1)]

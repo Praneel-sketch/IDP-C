@@ -1,0 +1,16 @@
+# Vegetation-heavy, non-urban change regime, southern hemisphere (UTM
+# 327xx path). The BR-364 corridor in Rondônia is a long-documented
+# deforestation frontier; expectation is vegetation -> crops/bare
+# transitions rather than urbanization.
+region:
+  name: rondonia_frontier
+  display_name: "Rondônia deforestation frontier (BR-364)"
+  bbox:
+    west: -63.30
+    south: -9.35
+    east: -63.20
+    north: -9.25
+  years: [2017, 2018, 2019, 2020, 2021, 2022, 2023]
+  notes: >
+    Tests the system outside urban contexts and in the southern
+    hemisphere; change here is agricultural frontier expansion.

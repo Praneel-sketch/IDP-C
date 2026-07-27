@@ -1,11 +1,13 @@
 """CityChange command-line interface.
 
 Usage:
-    python -m citychange run configs/devanahalli.yaml
-    citychange run configs/devanahalli.yaml          (after `pip install -e .`)
+    citychange run configs/devanahalli.yaml
+    citychange run --bbox 77.63 13.17 77.73 13.27 --name my_area
+    citychange benchmark                 # all regions in configs/benchmark/
+    citychange serve                     # web app (see server.py)
 
-Pipeline stages: acquire (cached) -> remap to canonical states -> temporal
-analysis -> figures + summary reports under data/outputs/<region>/.
+All analysis logic lives in pipeline.run_analysis(); this module only
+parses arguments.
 """
 
 from __future__ import annotations
@@ -16,113 +18,90 @@ import sys
 from pathlib import Path
 
 from citychange import __version__
-from citychange.analysis import (
-    find_hotspot,
-    fraction_trends,
-    stable_change_mask,
-    top_transitions,
-    transition_matrix,
-)
-from citychange.config import data_dir, load_region
-from citychange.datasets.io_annual_lulc import fetch_annual_stack
-from citychange.landstate import NODATA, remap_to_states
-from citychange.report import build_summary, render_markdown, write_reports
-from citychange.viz import plot_change_map, plot_trends, plot_yearly_states
+from citychange.config import REPO_ROOT, BBox, RegionConfig, load_region
+from citychange.datasets.io_annual_lulc import AVAILABLE_YEARS
+from citychange.params import DEFAULT_PARAMS
+from citychange.pipeline import run_analysis
+from citychange.report import render_markdown
 
 log = logging.getLogger("citychange")
 
-STABLE_CHANGE_PERSISTENCE = 2  # final state must hold for the last N years
 
-
-def run(config_path: Path) -> Path:
-    region = load_region(config_path)
-    out_dir = data_dir() / "outputs" / region.name
-    log.info("region '%s' (%s), years %s", region.name, region.display_name, region.years)
-
-    # 1. Acquire (windowed remote reads, cached locally).
-    stack = fetch_annual_stack(region)
-    log.info("grid %s px, tile %s", stack.shape, stack.tile)
-
-    # 2. Canonical land states.
-    states = {y: remap_to_states(g) for y, g in stack.grids.items()}
-    nodata_frac = {
-        y: float((g == NODATA).mean()) for y, g in states.items()
-    }
-    for y, f in nodata_frac.items():
-        if f > 0.05:
-            log.warning("year %d has %.1f%% unobserved pixels", y, f * 100)
-
-    # 3. Temporal analysis.
-    y0, y1 = region.years[0], region.years[-1]
-    trends = fraction_trends(states)
-    matrix = transition_matrix(states[y0], states[y1])
-    transitions = top_transitions(matrix, k=5)
-    raw_change = sum(v for (f, t), v in matrix.items() if f != t)
-
-    change_mask = stable_change_mask(states, persistence=STABLE_CHANGE_PERSISTENCE)
-    observed = (states[y0] != NODATA) & (states[y1] != NODATA)
-    stable_change = float(change_mask.sum()) / max(int(observed.sum()), 1)
-    hotspot = find_hotspot(change_mask, region.hotspot_block_px)
-    hotspot_lonlat = stack.pixel_center_lonlat(
-        hotspot.row0 + hotspot.block_px / 2, hotspot.col0 + hotspot.block_px / 2
+def _region_from_args(args: argparse.Namespace) -> RegionConfig:
+    if args.config:
+        return load_region(args.config)
+    if not args.bbox:
+        raise SystemExit("provide either a config file or --bbox W S E N")
+    west, south, east, north = args.bbox
+    name = args.name or f"bbox_{west:.3f}_{south:.3f}_{east:.3f}_{north:.3f}".replace(
+        "-", "m"
+    ).replace(".", "p")
+    years = tuple(args.years) if args.years else AVAILABLE_YEARS
+    return RegionConfig(
+        name=name,
+        display_name=args.display_name or name,
+        bbox=BBox(west=west, south=south, east=east, north=north),
+        years=years,
     )
 
-    # 4. Figures.
-    plot_yearly_states(
-        states,
-        f"{region.display_name} — annual land states",
-        out_dir / "yearly_states.png",
-    )
-    plot_trends(
-        trends,
-        f"{region.display_name} — land-state trends {y0}–{y1}",
-        out_dir / "trends.png",
-    )
-    plot_change_map(
-        states[y1],
-        change_mask,
-        hotspot,
-        f"{region.display_name} — stable change {y0}–{y1} (colored by final state)",
-        out_dir / "change_map.png",
-    )
 
-    # 5. Grounded reports.
-    summary = build_summary(
-        region=region,
-        tile=stack.tile,
-        shape=stack.shape,
-        trends=trends,
-        transitions=transitions,
-        raw_change_fraction=raw_change,
-        stable_change_fraction=stable_change,
-        hotspot=hotspot,
-        hotspot_lonlat=hotspot_lonlat,
-        persistence=STABLE_CHANGE_PERSISTENCE,
-    )
-    write_reports(summary, out_dir)
-    log.info("outputs written to %s", out_dir)
+def cmd_run(args: argparse.Namespace) -> int:
+    region = _region_from_args(args)
+    summary = run_analysis(region, DEFAULT_PARAMS, force=args.force)
     print(render_markdown(summary))
-    return out_dir
+    return 0
+
+
+def cmd_benchmark(args: argparse.Namespace) -> int:
+    from citychange.benchmark import run_benchmark
+
+    bench_dir = Path(args.dir) if args.dir else REPO_ROOT / "configs" / "benchmark"
+    return run_benchmark(bench_dir, force=args.force)
+
+
+def cmd_serve(args: argparse.Namespace) -> int:
+    import uvicorn
+
+    uvicorn.run(
+        "citychange.server:app", host=args.host, port=args.port, log_level="info"
+    )
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="citychange", description=__doc__)
     parser.add_argument("--version", action="version", version=__version__)
     sub = parser.add_subparsers(dest="command", required=True)
-    p_run = sub.add_parser("run", help="run the v0.1 analysis pipeline for a region")
-    p_run.add_argument("config", type=Path, help="region YAML, e.g. configs/devanahalli.yaml")
-    p_run.add_argument("-v", "--verbose", action="store_true")
-    args = parser.parse_args(argv)
 
+    p_run = sub.add_parser("run", help="analyse one region")
+    p_run.add_argument("config", nargs="?", type=Path, help="region YAML")
+    p_run.add_argument("--bbox", nargs=4, type=float, metavar=("W", "S", "E", "N"))
+    p_run.add_argument("--name", help="region name for the output bundle")
+    p_run.add_argument("--display-name")
+    p_run.add_argument("--years", nargs="+", type=int)
+    p_run.add_argument("--force", action="store_true", help="recompute even if current")
+    p_run.add_argument("-v", "--verbose", action="store_true")
+    p_run.set_defaults(func=cmd_run)
+
+    p_bench = sub.add_parser("benchmark", help="run the geographic benchmark suite")
+    p_bench.add_argument("--dir", help="directory of region YAMLs")
+    p_bench.add_argument("--force", action="store_true")
+    p_bench.add_argument("-v", "--verbose", action="store_true")
+    p_bench.set_defaults(func=cmd_benchmark)
+
+    p_serve = sub.add_parser("serve", help="serve the web app")
+    p_serve.add_argument("--host", default="127.0.0.1")
+    p_serve.add_argument("--port", type=int, default=8000)
+    p_serve.add_argument("-v", "--verbose", action="store_true")
+    p_serve.set_defaults(func=cmd_serve)
+
+    args = parser.parse_args(argv)
     logging.basicConfig(
         level=logging.DEBUG if getattr(args, "verbose", False) else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
-    if args.command == "run":
-        run(args.config)
-        return 0
-    return 2
+    return args.func(args)
 
 
 if __name__ == "__main__":

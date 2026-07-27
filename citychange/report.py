@@ -1,58 +1,101 @@
-"""Grounded summary generation for CityChange v0.1.
+"""Grounded summary generation.
 
-Every sentence in the generated summary is instantiated from computed
-numbers — there is no free-text generation and no LLM in v0.1. The
-narrative-safety rule (docs/DECISIONS.md): the summary reports
-*observations* (what the land-cover product shows) and clearly marked
-*caveats*; it makes no causal claims.
+Every sentence is instantiated from computed numbers; there is no free-text
+generation. Language discipline (docs/DECISIONS.md D-007):
+
+- OBSERVATION: what the land-cover product shows ("built-up rose from…").
+- INFERENCE: explicitly hedged, bounded by cadence ("change appears
+  between the 2020 and 2021 composites").
+- No causal claims, no intent attribution, "rare" never "suspicious".
 """
 
 from __future__ import annotations
 
-import json
+import datetime as _dt
 from dataclasses import asdict
-from pathlib import Path
 from typing import Any
 
-from citychange.analysis import Hotspot
+import numpy as np
+
 from citychange.config import RegionConfig
+from citychange.datasets.io_annual_lulc import AnnualStack
 from citychange.landstate import STATE_LABELS, STATE_NAMES
+from citychange.params import AnalysisParams
+from citychange.trajectory import ARCHETYPE_NAMES, CHANGE_ARCHETYPES
 
 _NAME_TO_LABEL = {STATE_NAMES[s]: label for s, label in STATE_LABELS.items()}
 
+SOURCE_CITATION = "Impact Observatory / Esri 10m Annual LULC v003 (CC BY 4.0)"
+
+
+def _label(name: str) -> str:
+    return _NAME_TO_LABEL.get(name, name)
+
 
 def _pp(x: float) -> str:
-    """Format a fraction as signed percentage points."""
     return f"{x * 100:+.1f}"
 
 
 def build_summary(
+    *,
     region: RegionConfig,
-    tile: str,
-    shape: tuple[int, int],
+    params: AnalysisParams,
+    stack: AnnualStack,
     trends: dict[str, dict[int, float]],
     transitions: list[tuple[str, str, float]],
     raw_change_fraction: float,
-    stable_change_fraction: float,
-    hotspot: Hotspot,
-    hotspot_lonlat: tuple[float, float],
-    persistence: int,
+    b2_change_fraction: float,
+    event_change_fraction: float,
+    volumes: dict[int, dict[tuple[int, int], int]],
+    peak: tuple[int, int] | None,
+    archetypes: np.ndarray,
+    analysed: np.ndarray,
+    sig_stats: list[dict],
+    rare_table: list[dict],
+    anomaly_fraction: float,
+    tier_counts: dict[str, int],
+    mean_confidence: float,
+    hotspots: list[dict],
+    clusters: dict,
+    fingerprint: str,
 ) -> dict[str, Any]:
-    """Assemble the machine-readable summary of one region analysis."""
     y0, y1 = region.years[0], region.years[-1]
     deltas = {
         name: series[y1] - series[y0]
         for name, series in trends.items()
         if y0 in series and y1 in series
     }
+    n_analysed = max(int(analysed.sum()), 1)
+    arch_fracs = {
+        ARCHETYPE_NAMES[code]: round(float((archetypes == code).sum()) / n_analysed, 4)
+        for code in ARCHETYPE_NAMES
+        if code != 0 and (archetypes == code).any()
+    }
+    volumes_json = {
+        str(year): [
+            {
+                "from": STATE_NAMES[f],
+                "to": STATE_NAMES[t],
+                "pixels": px,
+            }
+            for (f, t), px in sorted(pairs.items(), key=lambda kv: -kv[1])
+        ]
+        for year, pairs in sorted(volumes.items())
+    }
     return {
+        "citychange_version": _version(),
+        "fingerprint": fingerprint,
+        "generated_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
         "region": region.name,
         "display_name": region.display_name,
         "bbox": asdict(region.bbox),
-        "utm_tile": tile,
-        "grid_shape": list(shape),
+        "utm_tile": stack.tile,
+        "grid_shape": list(stack.shape),
+        "pixel_meters": 10,
+        "area_km2": round(stack.shape[0] * stack.shape[1] * 100 / 1e6, 1),
         "years": list(region.years),
-        "source": "Impact Observatory / Esri 10m Annual LULC v003 (CC BY 4.0)",
+        "source": SOURCE_CITATION,
+        "params": asdict(params),
         "state_fractions_by_year": {
             name: {str(y): round(v, 4) for y, v in series.items()}
             for name, series in trends.items()
@@ -62,109 +105,180 @@ def build_summary(
             {"from": f, "to": t, "fraction_of_area": round(v, 4)}
             for f, t, v in transitions
         ],
-        "raw_change_fraction": round(raw_change_fraction, 4),
-        "stable_change_fraction": round(stable_change_fraction, 4),
-        "persistence_years_required": persistence,
-        "hotspot": {
-            "row0": hotspot.row0,
-            "col0": hotspot.col0,
-            "block_px": hotspot.block_px,
-            "block_meters": hotspot.block_px * 10,
-            "change_fraction": round(hotspot.change_fraction, 4),
-            "center_lon": round(hotspot_lonlat[0], 6),
-            "center_lat": round(hotspot_lonlat[1], 6),
+        "change_fractions": {
+            "raw_two_date": round(raw_change_fraction, 4),
+            "persistence_rule_b2": round(b2_change_fraction, 4),
+            "event_based": round(event_change_fraction, 4),
         },
+        "change_volumes_by_year": volumes_json,
+        "peak_change_period": list(peak) if peak else None,
+        "archetype_fractions": arch_fracs,
+        "top_signatures": sig_stats[:10],
+        "anomalies": {
+            "fraction_of_area": round(anomaly_fraction, 5),
+            "rarity_threshold": params.rarity_threshold,
+            "top_rare_signatures": rare_table[:8],
+        },
+        "confidence": {
+            "mean_event_score": round(mean_confidence, 3),
+            "tier_counts": tier_counts,
+            "note": (
+                "Scores are documented evidence heuristics (persistence, "
+                "pre-stability, sequence purity, spatial support), not "
+                "calibrated probabilities."
+            ),
+        },
+        "hotspots": hotspots,
+        "clusters": clusters,
     }
 
 
-def render_markdown(summary: dict[str, Any]) -> str:
-    """Human-readable report from the machine-readable summary."""
-    y0, y1 = summary["years"][0], summary["years"][-1]
-    lines: list[str] = []
-    lines.append(f"# CityChange v0.1 — {summary['display_name']}")
-    lines.append("")
-    b = summary["bbox"]
-    lines.append(
-        f"Area of interest: {b['west']:.3f}–{b['east']:.3f}°E, "
-        f"{b['south']:.3f}–{b['north']:.3f}°N (UTM tile {summary['utm_tile']}, "
-        f"{summary['grid_shape'][1]} × {summary['grid_shape'][0]} px at 10 m)."
-    )
-    lines.append(f"Observations: annual land cover, {y0}–{y1}.")
-    lines.append(f"Source: {summary['source']}.")
-    lines.append("")
+def _version() -> str:
+    from citychange import __version__
 
-    lines.append("## Observations")
-    lines.append("")
+    return __version__
+
+
+def render_markdown(s: dict[str, Any]) -> str:
+    y0, y1 = s["years"][0], s["years"][-1]
+    lines: list[str] = []
+    ap = lines.append
+    ap(f"# CityChange — {s['display_name']}")
+    ap("")
+    b = s["bbox"]
+    ap(
+        f"{b['west']:.3f}–{b['east']:.3f}°E, {b['south']:.3f}–{b['north']:.3f}°N · "
+        f"{s['area_km2']} km² · {y0}–{y1} annual observations · {s['source']}."
+    )
+    ap("")
+
+    ap("## What changed")
+    ap("")
     for name, delta in sorted(
-        summary["fraction_deltas_first_to_last"].items(), key=lambda kv: -abs(kv[1])
+        s["fraction_deltas_first_to_last"].items(), key=lambda kv: -abs(kv[1])
     ):
         if abs(delta) < 0.001:
             continue
-        series = summary["state_fractions_by_year"][name]
-        v0, v1 = series[str(y0)] * 100, series[str(y1)] * 100
-        label = _NAME_TO_LABEL.get(name, name)
-        lines.append(
-            f"- **{label}**: {v0:.1f}% of the area in {y0} → {v1:.1f}% in {y1} "
-            f"({_pp(delta)} pp)."
+        series = s["state_fractions_by_year"][name]
+        ap(
+            f"- **{_label(name)}**: {series[str(y0)] * 100:.1f}% → "
+            f"{series[str(y1)] * 100:.1f}% ({_pp(delta)} pp)."
         )
-    lines.append("")
-    lines.append(
-        f"- {summary['raw_change_fraction'] * 100:.1f}% of observed pixels are "
-        f"classified differently in {y1} than in {y0}."
+    cf = s["change_fractions"]
+    ap("")
+    ap(
+        f"- Naive two-date comparison marks {cf['raw_two_date'] * 100:.1f}% of the "
+        f"area as changed; the event model (change must persist "
+        f"{s['params']['persistence']}+ years with consistent evidence) confirms "
+        f"{cf['event_based'] * 100:.1f}%."
     )
-    lines.append(
-        f"- {summary['stable_change_fraction'] * 100:.1f}% changed *and* held their "
-        f"new state for the final {summary['persistence_years_required']} years "
-        f"(the stable-change criterion)."
-    )
-    lines.append("")
+    if s["top_transitions_first_to_last"]:
+        ap("")
+        ap("Largest transitions:")
+        for t in s["top_transitions_first_to_last"]:
+            ap(
+                f"- {_label(t['from'])} → {_label(t['to'])}: "
+                f"{t['fraction_of_area'] * 100:.1f}% of the area"
+            )
+    ap("")
 
-    lines.append(f"## Largest transitions ({y0} → {y1})")
-    lines.append("")
-    for t in summary["top_transitions_first_to_last"]:
-        lines.append(
-            f"- {_NAME_TO_LABEL.get(t['from'], t['from'])} → "
-            f"{_NAME_TO_LABEL.get(t['to'], t['to'])}: "
-            f"{t['fraction_of_area'] * 100:.1f}% of the area"
+    ap("## When change happened")
+    ap("")
+    if s["peak_change_period"]:
+        p0, p1 = s["peak_change_period"]
+        ap(
+            f"Change volume peaked in the window between the {p0} and {p1} "
+            f"composites (annual cadence bounds all timing to ±1 year)."
         )
-    lines.append("")
+        ap("")
+        for year, items in s["change_volumes_by_year"].items():
+            total = sum(i["pixels"] for i in items)
+            top = items[0]
+            ap(
+                f"- {int(year) - 1}→{year}: {total * 100 / 1e6:.2f} km² changed; "
+                f"largest: {_label(top['from'])} → {_label(top['to'])} "
+                f"({top['pixels'] * 100 / 1e6:.2f} km²)."
+            )
+    else:
+        ap("No persistent change events were detected in this period.")
+    ap("")
 
-    h = summary["hotspot"]
-    lines.append("## Strongest change hotspot")
-    lines.append("")
-    lines.append(
-        f"A {h['block_meters']} m × {h['block_meters']} m block centred at "
-        f"({h['center_lat']:.5f}°N, {h['center_lon']:.5f}°E) shows stable change "
-        f"on {h['change_fraction'] * 100:.0f}% of its pixels — the densest "
-        f"transformation in the area of interest."
+    ap("## How places changed (trajectories)")
+    ap("")
+    af = s["archetype_fractions"]
+    stable_frac = af.get("stable", 0) + af.get("stable_with_flicker", 0)
+    change_frac = sum(af.get(ARCHETYPE_NAMES[c], 0) for c in CHANGE_ARCHETYPES)
+    ap(
+        f"Of analysed pixels, {stable_frac * 100:.1f}% kept their state, "
+        f"{change_frac * 100:.1f}% underwent a persistent change, and the rest "
+        f"were unstable or fluctuating."
     )
-    lines.append("")
+    ap("")
+    for row in s["top_signatures"][:6]:
+        if row["signature"] == "unobserved":
+            continue
+        ap(f"- `{row['signature']}` — {row['fraction'] * 100:.1f}% of pixels")
+    ap("")
 
-    lines.append("## Caveats")
-    lines.append("")
-    lines.append(
-        "- These are observations from an automated annual land-cover product, "
-        "not verified ground truth; per-pixel classifications carry error."
+    an = s["anomalies"]
+    ap("## Unusual trajectories")
+    ap("")
+    if an["top_rare_signatures"]:
+        ap(
+            f"{an['fraction_of_area'] * 100:.2f}% of the area followed trajectories "
+            f"seen in less than {an['rarity_threshold'] * 100:.1f}% of pixels — "
+            f"statistically rare for this region, which is a rarity statement, "
+            f"not an assessment of legality or intent. Most common rare paths:"
+        )
+        for row in an["top_rare_signatures"][:5]:
+            ap(f"- `{row['signature']}` ({row['pixels']} px)")
+    else:
+        ap("No rare trajectories at the configured threshold.")
+    ap("")
+
+    ap("## Where change concentrated")
+    ap("")
+    for h in s["hotspots"]:
+        ap(
+            f"{h['rank']}. ({h['lat']:.5f}°N, {h['lon']:.5f}°E) — "
+            f"{h['change_fraction'] * 100:.0f}% of a {h['block_m']} m block changed; "
+            f"dominant: {_label(h['dominant_from'])} → {_label(h['dominant_to'])}, "
+            f"appearing by {h['dominant_year']} "
+            f"(mean confidence {h['mean_confidence']:.2f})."
+        )
+    if not s["hotspots"]:
+        ap("No change hotspots — the area was largely stable.")
+    ap("")
+
+    c = s["confidence"]
+    ap("## Confidence")
+    ap("")
+    tc = c["tier_counts"]
+    total_ev = max(sum(tc.values()), 1)
+    ap(
+        f"Detected changes: {tc.get('high', 0) * 100 // total_ev}% high, "
+        f"{tc.get('medium', 0) * 100 // total_ev}% medium, "
+        f"{tc.get('low', 0) * 100 // total_ev}% low confidence "
+        f"(mean score {c['mean_event_score']:.2f}). {c['note']}"
     )
-    lines.append(
-        "- Annual cadence cannot resolve sub-year timing; \"changed by "
-        f"{y1}\" means the change appears between two annual composites."
-    )
-    lines.append(
-        "- No causal claims are made: the data shows *what* changed, not *why*."
-    )
-    lines.append(
-        "- Changes occurring in the final year of the series may be excluded "
-        "by the stable-change criterion."
-    )
-    lines.append("")
+    ap("")
+
+    ap("## Caveats")
+    ap("")
+    ap("- Observations come from an automated land-cover product; per-pixel classifications carry error and the product's biases propagate to this analysis.")
+    ap("- Annual composites cannot resolve sub-year timing; every date is a between-composites window.")
+    ap("- This report describes *what* the observations show, not *why* it happened; no causal claims are made.")
+    ap("- Changes beginning in the final year of the series are excluded by the persistence requirement.")
+    ap("")
     return "\n".join(lines)
 
 
-def write_reports(summary: dict[str, Any], out_dir: Path) -> tuple[Path, Path]:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    json_path = out_dir / "summary.json"
-    md_path = out_dir / "summary.md"
-    json_path.write_text(json.dumps(summary, indent=2) + "\n")
-    md_path.write_text(render_markdown(summary))
-    return json_path, md_path
+def write_reports(summary: dict[str, Any], out_dir) -> None:
+    from pathlib import Path
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    import json
+
+    (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    (out / "summary.md").write_text(render_markdown(summary))

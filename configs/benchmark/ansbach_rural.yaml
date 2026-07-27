@@ -1,0 +1,16 @@
+# Stable rural control. Farmland and forest around Ansbach (Bavaria) with
+# no known large development; a trustworthy system must report "not much
+# persistent change" here. Crop rotation will exercise the
+# flicker-rejection machinery.
+region:
+  name: ansbach_rural
+  display_name: "Ansbach rural surroundings (Bavaria)"
+  bbox:
+    west: 10.45
+    south: 49.25
+    east: 10.55
+    north: 49.33
+  years: [2017, 2018, 2019, 2020, 2021, 2022, 2023]
+  notes: >
+    Stability control: success is a near-empty change report, not a
+    dramatic story.

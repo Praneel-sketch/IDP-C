@@ -1,0 +1,15 @@
+# Water-dynamics regime. Lake Mead's level declined severely through 2022
+# (documented drought), exposing shoreline; expectation is water -> bare
+# transitions along the shore, with possible partial recovery after 2023.
+region:
+  name: lake_mead_west
+  display_name: "Lake Mead western shore"
+  bbox:
+    west: -114.55
+    south: 36.05
+    east: -114.42
+    north: 36.15
+  years: [2017, 2018, 2019, 2020, 2021, 2022, 2023]
+  notes: >
+    Non-anthropogenic-construction change regime: hydrological change,
+    shoreline dynamics, largely uninhabited terrain.

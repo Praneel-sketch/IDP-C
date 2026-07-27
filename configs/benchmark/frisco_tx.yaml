@@ -1,0 +1,15 @@
+# Suburban greenfield expansion. The Frisco/McKinney corridor north of
+# Dallas was among the fastest-growing US suburbs during 2017-2023;
+# expectation is crops/vegetation converting to low-density built fabric.
+region:
+  name: frisco_tx
+  display_name: "Frisco / North Dallas suburbs"
+  bbox:
+    west: -96.87
+    south: 33.12
+    east: -96.77
+    north: 33.22
+  years: [2017, 2018, 2019, 2020, 2021, 2022, 2023]
+  notes: >
+    US suburban expansion pattern, contrasting with dense Indian
+    urbanization in texture and pace.

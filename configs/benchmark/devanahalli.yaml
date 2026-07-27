@@ -1,0 +1,19 @@
+# Pilot region for CityChange v0.1.
+#
+# North Bengaluru around Devanahalli / the Kempegowda International Airport
+# corridor — one of the fastest-urbanizing zones in India in 2017-2023, so
+# genuine land transformation is clearly observable inside a small, cheap
+# bounding box (~10 km x 10 km, ~1.2 M pixels per year at 10 m).
+region:
+  name: devanahalli
+  display_name: "Devanahalli / North Bengaluru airport corridor"
+  bbox:
+    west: 77.63
+    south: 13.17
+    east: 77.73
+    north: 13.27
+  years: [2017, 2018, 2019, 2020, 2021, 2022, 2023]
+  hotspot_block_px: 25   # 250 m blocks at 10 m resolution
+  notes: >
+    Chosen as the v0.1 pilot: rapid, well-documented urban expansion driven
+    by the airport corridor; entirely inside UTM tile 43P.

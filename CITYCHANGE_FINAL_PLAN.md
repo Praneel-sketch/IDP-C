@@ -181,17 +181,17 @@ relationship reported.
 | id | milestone | status |
 |---|---|---|
 | M0 | audit v0.1 + this plan | ✅ |
-| M1 | change-event extraction (timing, volumes, year-of-change) | ⬜ |
-| M2 | trajectory modelling (archetypes, signatures, rarity, clustering) | ⬜ |
-| M3 | confidence scoring | ⬜ |
-| M4 | arbitrary-AOI acquisition (mosaic) + pipeline orchestrator + extended reports | ⬜ |
-| M5 | geographic benchmark (6 regions) + WorldCover cross-validation | ⬜ |
-| M6 | FastAPI backend + overlays + geocode proxy | ⬜ |
-| M7 | City Time Machine frontend | ⬜ |
-| M8 | Sentinel-2 evidence chips (optional-path) | ⬜ |
-| M9 | Docker + deployment + evaluation/experiment docs + report skeleton | ⬜ |
+| M1 | change-event extraction (timing, volumes, year-of-change) | ✅ |
+| M2 | trajectory modelling (archetypes, signatures, rarity, clustering) | ✅ |
+| M3 | confidence scoring | ✅ |
+| M4 | arbitrary-AOI acquisition (mosaic) + pipeline orchestrator + extended reports | ✅ |
+| M5 | geographic benchmark (6 regions) + WorldCover cross-validation + temporal holdout | ✅ |
+| M6 | FastAPI backend + overlays + geocode proxy | ✅ |
+| M7 | City Time Machine frontend (verified with live-browser screenshots) | ✅ |
+| M8 | Sentinel-2 evidence chips (optional-path) | ✅ |
+| M9 | Docker + deployment + evaluation/experiment docs + report skeleton | ✅ (Docker image build untested in sandbox — no daemon; see docs/DEPLOY.md) |
 
-Each milestone ends with green tests and a pushed commit.
+Each milestone ended with green tests and a pushed commit.
 
 ## 13. Risks
 

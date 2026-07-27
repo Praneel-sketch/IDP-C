@@ -1,37 +1,44 @@
 # CityChange
 
-**AI-powered urban evolution intelligence from open Earth-observation data.**
+**Urban evolution intelligence from open Earth-observation data.**
 
-Google Maps shows what a place looks like. CityChange tells the story of how
-it became what it is — think *git history for physical places*. Given a
-geographic area, CityChange reconstructs how land states (built-up,
-vegetation, crops, water, bare land) evolved over the years, detects when and
-where meaningful transformations happened, and reports them in plain,
-defensible language with explicit uncertainty.
+Google Maps shows what a place looks like. CityChange tells the story of
+how it became what it is — *git history for physical places*. Pick any
+area on the map and CityChange reconstructs its 2017–2023 land history
+from open satellite-derived observations: what changed, when, along which
+trajectory, how unusual that trajectory is, and how strong the evidence
+is — with inspectable before/after imagery.
 
-Current status: **v0.1 proof of concept — working.**
+**Status: v1.0** — full pipeline, 6-region validation benchmark, web app,
+API, evaluation suite. Built as a year-long academic project.
 
-## What v0.1 does
+![City Time Machine](docs/img/frontend_home.png)
 
-For a bounding box defined in a YAML config, CityChange:
+## What it does
 
-1. fetches annual 10 m land-cover observations (2017–2023) via windowed
-   HTTP reads of public cloud-optimized GeoTIFFs — a few MB per region-year,
-   no credentials, cached locally for offline re-runs;
-2. remaps them to a canonical land-state vocabulary;
-3. computes per-year land-state fractions, first-to-last transition
-   matrices, and a *stable change* mask (a change only counts if the new
-   state persists over multiple years — single-year classification flicker
-   is rejected);
-4. locates the densest change hotspot;
-5. renders yearly state maps, trend charts and a change map, plus a
-   grounded Markdown/JSON summary in which every sentence is instantiated
-   from computed numbers — no free-text generation, no causal claims.
+For any in-coverage bounding box (≤ ~1500 km²), CityChange:
 
-Pilot region: the Devanahalli / Kempegowda airport corridor in North
-Bengaluru, where v0.1 measures built-up area growing from 22.7% to 42.1% of
-the area between 2017 and 2023, mostly at the expense of cropland — and also
-surfaces several lakes refilling in 2021–22.
+1. streams annual 10 m land-cover observations (2017–2023) via windowed
+   reads of public cloud-optimized GeoTIFFs — a few MB per region, no
+   credentials, cached for offline re-runs;
+2. converts them to canonical land states (built / vegetation / crops /
+   water / bare / snow) — the analysis never depends on one product's
+   class scheme;
+3. extracts **dated change events** (two-phase model: a persistent new
+   state replacing a stable predecessor, ±1 year timing);
+4. models **trajectories** — run-length signatures and interpretable
+   archetypes (stable, direct change, staged change, reverted,
+   fluctuating…);
+5. finds **patterns** (blocks that evolved similarly, via k-means) and
+   **anomalies** (statistically rare trajectories under a strict area
+   budget — rare means uncommon, never "illicit");
+6. grades every detected change with an **evidence score** (persistence,
+   pre-stability, sequence purity, spatial support), validated by
+   temporal holdout;
+7. fetches Sentinel-2 **before/after chips** so claims can be verified by
+   eye;
+8. renders it all as a grounded story: no free-text generation, no causal
+   claims, explicit caveats.
 
 ## Quickstart
 
@@ -39,54 +46,69 @@ surfaces several lakes refilling in 2021–22.
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-# run the unit tests (no network needed)
-pytest
-
-# run the pipeline for the pilot region (first run downloads ~400 kB)
-citychange run configs/devanahalli.yaml
+pytest                                   # 61 tests, no network needed
+citychange run configs/devanahalli.yaml  # pilot region (~1 min first run)
+citychange benchmark                     # all 6 validation regions
+citychange serve                         # City Time Machine → :8000
 ```
 
-Outputs land in `data/outputs/<region>/`:
+Or any place you like:
 
-| file | contents |
-|---|---|
-| `yearly_states.png` | canonical land-state map for every year |
-| `trends.png` | built/vegetation/crops/water/bare fractions over time |
-| `change_map.png` | stable-change pixels colored by final state + hotspot |
-| `summary.md` / `summary.json` | grounded human/machine-readable report |
+```bash
+citychange run --bbox 77.63 13.17 77.73 13.27 --name my_area
+```
 
-To analyse a different area, copy `configs/devanahalli.yaml`, change the
-bbox/name, and run it. v0.1 supports regions inside a single UTM tile
-(~6° × 8°); keep boxes small (≲ 20 km) — that is the intended scale anyway.
+Docker: see [docs/DEPLOY.md](docs/DEPLOY.md).
+
+## Does it generalize? (measured, not claimed)
+
+One global parameter set, six regions, four continents
+([docs/EVALUATION.md](docs/EVALUATION.md)):
+
+| region | regime | persistent change |
+|---|---|---|
+| Devanahalli (IN) | rapid urbanization | 26.6% (built +19.4 pp) |
+| Frisco (US) | suburban expansion | 14.9% (built +10.6 pp) |
+| Rondônia (BR) | deforestation frontier | 14.6% (crops +28.1 pp) |
+| Lake Mead (US) | water dynamics | 8.4% |
+| Ansbach (DE) | stable rural control | 2.3% |
+| central Paris (FR) | dense stable control | 0.2% |
+
+Stable places read as stable — as important as detecting drama.
+Confidence scores are holdout-validated (highest-evidence quartile is
+20–41 pp more likely to persist than the lowest in settlement regimes;
+known failure mode at active frontiers is documented, not hidden).
 
 ## Repository layout
 
 ```
-citychange/            pipeline library + CLI (production code)
-  config.py            YAML region configs, data directories
-  tiles.py             UTM zone/latitude-band tile arithmetic
-  landstate.py         source-class → canonical land-state schema
-  datasets/            data acquisition (one module per source)
-  analysis.py          temporal analysis (pure NumPy, fully unit-tested)
-  viz.py               static figures
-  report.py            grounded summary generation
-configs/               region definitions (reproducible runs)
-tests/                 unit tests — synthetic arrays, no network
-docs/                  architecture, decision log, data-source verification
-data/                  gitignored: download cache + generated outputs
-experiments/           research experiments (kept separate from production)
-notebooks/             exploration only — never load-bearing
+citychange/          pipeline + intelligence layer + API (production code)
+frontend/            City Time Machine (no build step, vendored Leaflet)
+configs/             region definitions; configs/benchmark/ = validation suite
+tests/               61 unit/API tests (synthetic data, no network)
+docs/                architecture, decisions, data sources, evaluation,
+                     experiments, deployment, reproduction
+reports/             academic report material
+docker/              Dockerfile + compose
+data/                gitignored: caches + analysis bundles
 ```
 
 ## Documentation
 
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — system design and v0.1 scope
-- [docs/DECISIONS.md](docs/DECISIONS.md) — running decision log
-- [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) — verified data sources, licenses, limitations
-- [docs/ROADMAP.md](docs/ROADMAP.md) — phase plan and what v0.1 proves / does not prove
+| doc | contents |
+|---|---|
+| [CITYCHANGE_FINAL_PLAN.md](CITYCHANGE_FINAL_PLAN.md) | execution plan + definition of done |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | system design + invariants |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | decision log D-001…D-013 |
+| [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) | verified sources, licenses, limits |
+| [docs/EVALUATION.md](docs/EVALUATION.md) | benchmark, validation, honest failures |
+| [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md) | experiment log E-001…E-005 |
+| [docs/REPRODUCE.md](docs/REPRODUCE.md) | one command per result |
+| [docs/DEPLOY.md](docs/DEPLOY.md) | local + Docker deployment |
 
-## License and data attribution
+## License & attribution
 
-Code: MIT. Land-cover data: Impact Observatory / Esri 10 m Annual Land Use
-Land Cover (CC BY 4.0), derived from ESA Sentinel-2 imagery. See
-docs/DATA_SOURCES.md for full attribution requirements.
+Code MIT. Data: Impact Observatory / Microsoft / Esri 10 m Annual LULC
+(CC BY 4.0, from ESA Sentinel-2); ESA WorldCover (CC BY 4.0); Copernicus
+Sentinel-2 imagery (ESA); geocoding & basemap © OpenStreetMap
+contributors.

@@ -109,3 +109,81 @@ CAN REVISIT?
 - **TRADEOFF**: prose is formulaic; acceptable until the analysis outputs
   are rich enough to warrant a constrained generator.
 - **CAN REVISIT?**: yes — Phase 12 explanation layer.
+
+## D-008 — Event model: two-phase approximation with conservative tie-break
+
+- **DECISION**: a change event = modal pre-phase state A → final
+  persistent state B, dated to the first composite of the final run; if
+  the pre-phase shows as much evidence for B as for A, no event is
+  claimed.
+- **REASON**: robust to pre-transition flicker; the tie-break prefers
+  "excursion that reverted" over a change claim when evidence is
+  ambiguous — false change claims are costlier than misses for trust.
+- **ALTERNATIVES**: first-vs-last states (noisy), HMM/BFAST-style temporal
+  models (heavier, opaque for 7 annual points).
+- **TRADEOFF**: multi-stage histories are compressed to one event; the
+  trajectory layer (signatures/archetypes) preserves the full path.
+- **CAN REVISIT?**: yes — with ≥10 annual observations a sequence model
+  becomes worth its complexity.
+
+## D-009 — Anomalies = rare multi-state signatures under an area budget
+
+- **DECISION**: anomaly = trajectory signature with ≥2 states, frequency
+  < 0.5% of analysed pixels, admitted rarest-first under a 2% total area
+  budget.
+- **REASON**: E-005 — unbudgeted rarity flagged 10.9% of the pilot and
+  static states; selectivity is what makes "unusual" informative.
+- **ALTERNATIVES**: learned density models (opaque), distance-to-cluster
+  scoring (depends on k-means quality).
+- **TRADEOFF**: budget is a presentation choice, not a statistical bound;
+  stated in the report text.
+- **CAN REVISIT?**: yes, budget/threshold are AnalysisParams.
+
+## D-010 — Confidence = documented evidence heuristic, validated by holdout
+
+- **DECISION**: confidence combines persistence, pre-stability, purity and
+  3×3 spatial support with fixed weights; framed everywhere as an evidence
+  grade; primary validation is the 2022–23 temporal holdout (E-004), not
+  cross-product agreement (E-003 showed that instrument is confounded).
+- **REASON**: honest, cheap, and demonstrably rank-informative in
+  settlement regimes; calibration against real ground truth is not
+  achievable with available data.
+- **ALTERNATIVES**: Bayesian state-space per pixel (costly, false
+  precision), conformal wrappers (no exchangeable ground truth).
+- **TRADEOFF**: known failure mode in multi-stage landscapes (Rondônia
+  inversion), documented in EVALUATION.md.
+- **CAN REVISIT?**: yes — trajectory-aware confidence is the flagged
+  research extension.
+
+## D-011 — No-build frontend (vendored Leaflet + vanilla JS) over React
+
+- **DECISION**: the web UI is static HTML/CSS/JS served by FastAPI;
+  Leaflet 1.9.4 vendored into the repo; charts are hand-rolled SVG.
+- **REASON**: the UI needs a map, a slider, charts and a story panel —
+  none require a build toolchain; 3-student team avoids node/webpack
+  maintenance; deployable anywhere Python runs; fully self-contained
+  except the basemap tiles.
+- **ALTERNATIVES**: React/Next + MapLibre (richer ecosystem, heavier ops).
+- **TRADEOFF**: less component reuse if the UI grows large.
+- **CAN REVISIT?**: yes — the API contract (summary.json/overlays.json) is
+  frontend-agnostic by design.
+
+## D-012 — Storage stays filesystem bundles in v1.0 (PostGIS still rejected)
+
+- **DECISION**: analysis bundles are directories of JSON/GeoTIFF/PNG;
+  the API serves them directly; no database.
+- **REASON**: bundles are <10 MB, region counts are dozens; a DB adds
+  operational weight with no current query need. Revisited (D-005) and
+  re-affirmed with the API in place.
+- **CAN REVISIT?**: yes — trigger would be multi-user persistence,
+  cross-region trajectory queries, or >1000 regions.
+
+## D-013 — Sentinel-2 imagery is evidence, not input
+
+- **DECISION**: S2 chips (Earth Search STAC → visual COGs) are fetched
+  only to let humans inspect detected transitions; no analysis depends on
+  them, and their absence never fails a run.
+- **REASON**: keeps the analysis credential-free and cheap while making
+  claims verifiable by eye — the trust feature the demo needs.
+- **CAN REVISIT?**: yes — sub-year timing from S2 NDVI series is the
+  natural Phase-2 research extension, gated on compute.

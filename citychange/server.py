@@ -207,6 +207,16 @@ def region_figure_file(region: str, filename: str) -> FileResponse:
     return FileResponse(_bundle_file(region, "figures", filename))
 
 
+@app.get("/api/region/{region}/evidence")
+def region_evidence(region: str) -> dict:
+    return json.loads(_bundle_file(region, "evidence", "evidence.json").read_text())
+
+
+@app.get("/api/region/{region}/evidence/{filename}")
+def region_evidence_file(region: str, filename: str) -> FileResponse:
+    return FileResponse(_bundle_file(region, "evidence", filename))
+
+
 # ---------------------------------------------------------------------------
 # Geocoding proxy (Nominatim usage policy: identify the app, ≤1 req/s,
 # results cached).

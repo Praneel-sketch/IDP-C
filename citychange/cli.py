@@ -59,6 +59,16 @@ def cmd_benchmark(args: argparse.Namespace) -> int:
     return run_benchmark(bench_dir, force=args.force)
 
 
+def cmd_validate(args: argparse.Namespace) -> int:
+    from citychange.pipeline import bundle_dir
+    from citychange.validation import validate_region
+
+    region = load_region(args.config)
+    validate_region(region)
+    print((bundle_dir(region.name) / "validation.md").read_text())
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
 
@@ -94,6 +104,13 @@ def main(argv: list[str] | None = None) -> int:
     p_serve.add_argument("--port", type=int, default=8000)
     p_serve.add_argument("-v", "--verbose", action="store_true")
     p_serve.set_defaults(func=cmd_serve)
+
+    p_val = sub.add_parser(
+        "validate", help="cross-product + holdout validation for a region"
+    )
+    p_val.add_argument("config", type=Path, help="region YAML")
+    p_val.add_argument("-v", "--verbose", action="store_true")
+    p_val.set_defaults(func=cmd_validate)
 
     args = parser.parse_args(argv)
     logging.basicConfig(

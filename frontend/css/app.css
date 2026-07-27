@@ -141,6 +141,15 @@ main { flex: 1; display: flex; min-height: 0; }
 .conf-med { background: #fdae61; }
 .conf-low { background: #d73027; }
 
+#evidence-imgs { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+#evidence-imgs figure { margin: 0; }
+#evidence-imgs img {
+  width: 100%; border-radius: 8px; image-rendering: auto;
+  border: 1px solid #2c3a4d;
+}
+#evidence-imgs figcaption { font-size: 0.75rem; color: var(--muted); text-align: center; margin-top: 0.2rem; }
+#evidence-caption { font-size: 0.78rem; color: var(--muted); }
+
 #caveats { margin-top: 1.2rem; font-size: 0.82rem; color: var(--muted); }
 #caveats summary { cursor: pointer; }
 #caveats ul { padding-left: 1.1rem; line-height: 1.5; }

@@ -146,6 +146,7 @@ def run_analysis(
     params: AnalysisParams = DEFAULT_PARAMS,
     force: bool = False,
     make_overlays: bool = True,
+    make_evidence: bool = True,
 ) -> dict:
     """Run the full intelligence pipeline for one region; returns summary."""
     t0 = time.time()
@@ -244,6 +245,24 @@ def run_analysis(
     viz.plot_volumes(volumes, region.years, f"{region.display_name} — change volume by year", fdir / "volumes.png")
     viz.plot_archetypes(archetypes, f"{region.display_name} — trajectory archetypes", fdir / "archetypes.png")
     viz.plot_anomalies(states[y1], anomaly_mask, f"{region.display_name} — rare trajectories", fdir / "anomalies.png")
+
+    # --- Sentinel-2 evidence chips (optional path, never fails the run) ---
+    if make_evidence and hotspots:
+        try:
+            from citychange.datasets.sentinel2 import evidence_for_hotspot
+
+            entries = []
+            for h in hotspots[:3]:
+                entry = evidence_for_hotspot(h, out_dir / "evidence")
+                if entry:
+                    entries.append(entry)
+            if entries:
+                (out_dir / "evidence" / "evidence.json").write_text(
+                    json.dumps({"hotspots": entries}, indent=2)
+                )
+                log.info("evidence chips for %d hotspots", len(entries))
+        except Exception:
+            log.exception("evidence generation failed (non-fatal)")
 
     # --- web overlays -----------------------------------------------------
     if make_overlays:

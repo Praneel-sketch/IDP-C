@@ -355,8 +355,31 @@ function renderHotspots(s) {
     li.addEventListener("click", () => {
       const h = s.hotspots[+li.dataset.i];
       map.flyTo([h.lat, h.lon], 15, { duration: 1.0 });
+      showEvidence(h.rank);
     });
   });
+  // preload the evidence manifest (absent for offline-only bundles)
+  state.evidence = null;
+  api(`/api/region/${s.region}/evidence`)
+    .then((ev) => { state.evidence = ev; showEvidence(s.hotspots[0] && s.hotspots[0].rank); })
+    .catch(() => el("evidence-block").classList.add("hidden"));
+}
+
+function showEvidence(rank) {
+  const block = el("evidence-block");
+  if (!state.evidence || rank == null) { block.classList.add("hidden"); return; }
+  const entry = state.evidence.hotspots.find((h) => h.rank === rank);
+  if (!entry) { block.classList.add("hidden"); return; }
+  const base = `/api/region/${state.region.region}/evidence/`;
+  el("evidence-imgs").innerHTML = `
+    <figure><img src="${base}${entry.before.file}" alt="before">
+      <figcaption>${entry.before.date}</figcaption></figure>
+    <figure><img src="${base}${entry.after.file}" alt="after">
+      <figcaption>${entry.after.date}</figcaption></figure>`;
+  el("evidence-caption").textContent =
+    `Hotspot #${entry.rank}: ${entry.transition.replaceAll("_", " ")} — estimated between ` +
+    `${entry.estimated_window}. ${entry.note}`;
+  block.classList.remove("hidden");
 }
 
 function renderAnomalies(s) {

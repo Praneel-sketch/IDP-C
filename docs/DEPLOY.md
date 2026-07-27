@@ -24,12 +24,11 @@ docker run -p 8000:8000 -v citychange-data:/data citychange
 cd docker && docker compose up --build
 ```
 
-> **Status note (honest):** the Dockerfile is straightforward (slim Python
-> base + pip install of the same wheels used in development) but could not
-> be build-tested in the development sandbox (no Docker daemon available).
-> First person to deploy: run
-> `docker build -f docker/Dockerfile -t citychange . && docker run --rm -p 8000:8000 citychange`
-> and check `curl localhost:8000/api/health`; report any failure as a bug.
+> **Status:** the image is build-tested and smoke-tested (health endpoint,
+> frontend, vendored assets all verified from a running container). The
+> slim base needs `libexpat1` for rasterio's bundled GDAL — already handled
+> in the Dockerfile. If your build environment sits behind an HTTP proxy,
+> pass it through: `docker build --build-arg HTTPS_PROXY=... ...`.
 
 The `/data` volume holds the download cache and analysis bundles; keep it
 persistent so re-deploys don't refetch observations. To pre-warm inside

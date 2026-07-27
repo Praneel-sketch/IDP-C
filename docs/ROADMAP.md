@@ -13,7 +13,7 @@ Build vertically: something runnable at every phase. Status as of v1.0.
 | 8 | uncertainty (evidence-grade confidence + holdout validation) | ✅ |
 | 9 | interactive City Time Machine (API + web app) | ✅ |
 | 10 | evaluation + baselines + cross-product validation | ✅ docs/EVALUATION.md |
-| 11 | deployment (Docker; build-untested in sandbox, see DEPLOY.md) | ✅* |
+| 11 | deployment (Docker image built + container smoke-tested) | ✅ |
 | 12 | paper/report material | 🔨 reports/REPORT_OUTLINE.md + logs |
 
 ## Post-v1.0 candidates (research extensions, in priority order)

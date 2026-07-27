@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CityChange — City Time Machine</title>
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <header id="topbar">
+    <div id="brand">
+      <span class="logo">🏙️</span>
+      <span class="title">CityChange</span>
+      <span class="subtitle">City Time Machine</span>
+    </div>
+    <div id="controls">
+      <div id="searchbox">
+        <input id="search" type="text" placeholder="Search a place…" autocomplete="off">
+        <div id="search-results" class="hidden"></div>
+      </div>
+      <select id="region-select"><option value="">Saved areas…</option></select>
+      <button id="analyze-btn" title="Analyse the area currently in view">Analyze this view</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="map-wrap">
+      <div id="map"></div>
+      <div id="map-ui">
+        <div id="layer-chips">
+          <button class="chip active" data-layer="states">Land</button>
+          <button class="chip" data-layer="change">What changed</button>
+          <button class="chip" data-layer="year_of_change">When</button>
+          <button class="chip" data-layer="confidence">How sure</button>
+          <button class="chip" data-layer="anomalies">Unusual</button>
+          <button class="chip" data-layer="clusters">Patterns</button>
+        </div>
+        <div id="timebar" class="hidden">
+          <button id="play-btn" title="Animate">▶</button>
+          <input id="year-slider" type="range" min="0" max="6" step="1" value="0">
+          <span id="year-label">—</span>
+          <input id="opacity-slider" type="range" min="0" max="100" value="80" title="Overlay opacity">
+        </div>
+        <div id="legend" class="hidden"></div>
+        <div id="job-status" class="hidden"></div>
+      </div>
+    </section>
+
+    <aside id="panel">
+      <div id="panel-empty">
+        <h2>Every place has a history.</h2>
+        <p>Search for a place or pan the map, then press
+          <strong>Analyze this view</strong> — CityChange reconstructs how the
+          area changed year by year from open satellite observations.</p>
+        <p>Or pick a saved area to explore.</p>
+      </div>
+      <div id="panel-content" class="hidden">
+        <h2 id="region-title"></h2>
+        <div id="stat-cards"></div>
+        <p id="peak-line" class="story"></p>
+        <h3>Land over time</h3>
+        <div id="trends-chart"></div>
+        <h3>Change per year</h3>
+        <div id="volumes-chart"></div>
+        <h3>Biggest changes</h3>
+        <ol id="hotspot-list"></ol>
+        <h3>Unusual histories</h3>
+        <div id="anomaly-block"></div>
+        <h3>How sure are we?</h3>
+        <div id="confidence-block"></div>
+        <details id="caveats">
+          <summary>What this can and cannot tell you</summary>
+          <ul>
+            <li>Observations come from an automated satellite land-cover product; individual pixels can be misclassified.</li>
+            <li>Timing is bounded by annual observations: “changed by 2021” means between the 2020 and 2021 snapshots.</li>
+            <li>CityChange reports <em>what</em> changed, never <em>why</em> — it makes no causal claims.</li>
+          </ul>
+        </details>
+      </div>
+    </aside>
+  </main>
+
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

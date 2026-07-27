@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "citychange"
+version = "0.1.0"
+description = "CityChange: urban evolution intelligence from open Earth-observation data"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "numpy>=1.24",
+    "rasterio>=1.3",
+    "pyproj>=3.5",
+    "matplotlib>=3.7",
+    "pyyaml>=6.0",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+]
+
+[project.scripts]
+citychange = "citychange.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["citychange*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

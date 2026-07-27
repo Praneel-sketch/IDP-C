@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# Environment / secrets
+.env
+
+# Data cache and generated outputs (reproducible from the pipeline)
+data/cache/
+data/outputs/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Notebooks checkpoints
+.ipynb_checkpoints/

@@ -167,10 +167,10 @@ def render_markdown(s: dict[str, Any]) -> str:
     cf = s["change_fractions"]
     ap("")
     ap(
-        f"- Naive two-date comparison marks {cf['raw_two_date'] * 100:.1f}% of the "
-        f"area as changed; the event model (change must persist "
-        f"{s['params']['persistence']}+ years with consistent evidence) confirms "
-        f"{cf['event_based'] * 100:.1f}%."
+        f"- A naive two-date comparison marks {cf['raw_two_date'] * 100:.1f}% of the "
+        f"area as changed; {cf['event_based'] * 100:.1f}% meets the event "
+        f"criterion (the new state persists {s['params']['persistence']}+ years "
+        f"and replaces a stable predecessor)."
     )
     if s["top_transitions_first_to_last"]:
         ap("")
@@ -273,12 +273,3 @@ def render_markdown(s: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def write_reports(summary: dict[str, Any], out_dir) -> None:
-    from pathlib import Path
-
-    out = Path(out_dir)
-    out.mkdir(parents=True, exist_ok=True)
-    import json
-
-    (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
-    (out / "summary.md").write_text(render_markdown(summary))

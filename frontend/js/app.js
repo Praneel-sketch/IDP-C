@@ -21,10 +21,26 @@ const api = async (path, opts) => {
 
 /* ---------- map ---------- */
 const map = L.map("map", { zoomControl: true }).setView([20, 30], 3);
-L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+
+/* Basemap with graceful degradation: if the tile provider is unreachable
+ * (offline demo, blocked network), drop the layer and tell the user —
+ * every analysis overlay is served locally and keeps working. */
+let tileErrors = 0;
+let tileLoads = 0;
+const baseLayer = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19,
   attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-}).addTo(map);
+});
+baseLayer.on("tileload", () => { tileLoads++; });
+baseLayer.on("tileerror", () => {
+  tileErrors++;
+  if (tileErrors >= 6 && tileLoads === 0 && map.hasLayer(baseLayer)) {
+    map.removeLayer(baseLayer);
+    const note = el("basemap-note");
+    if (note) note.classList.remove("hidden");
+  }
+});
+baseLayer.addTo(map);
 
 const state = {
   region: null,      // summary.json of the loaded region
@@ -180,16 +196,21 @@ el("analyze-btn").addEventListener("click", async () => {
 function showJob(text) { const j = el("job-status"); j.textContent = text; j.classList.remove("hidden"); }
 function hideJob() { el("job-status").classList.add("hidden"); }
 
+const POLL_TIMEOUT_MS = 12 * 60 * 1000;
+
 async function pollJob(jobId, regionName) {
   const started = Date.now();
   showJob("Fetching satellite observations and reconstructing history… (30–90 s for a new area)");
   while (true) {
+    if (Date.now() - started > POLL_TIMEOUT_MS) {
+      throw new Error("timed out — the server may be overloaded; try again or pick a smaller area");
+    }
     await new Promise((r) => setTimeout(r, 2500));
     const job = await api(`/api/jobs/${jobId}`);
     if (job.status === "done") { await loadRegion(regionName); hideJob(); return; }
     if (job.status === "error") throw new Error(job.error || "analysis failed");
     const secs = Math.round((Date.now() - started) / 1000);
-    showJob(`Analysing… ${secs}s (fetching ${7} years of observations, detecting change events)`);
+    showJob(`Analysing… ${secs}s (fetching 7 years of observations, detecting change events)`);
   }
 }
 
@@ -209,10 +230,19 @@ el("region-select").addEventListener("change", (e) => {
 });
 
 async function loadRegion(name) {
-  const [summary, overlays] = await Promise.all([
-    api(`/api/region/${name}/summary`),
-    api(`/api/region/${name}/overlays`),
-  ]);
+  showJob("Loading area…");
+  let summary, overlays;
+  try {
+    [summary, overlays] = await Promise.all([
+      api(`/api/region/${name}/summary`),
+      api(`/api/region/${name}/overlays`),
+    ]);
+  } catch (err) {
+    showJob(`Could not load this area: ${err.message}`);
+    setTimeout(hideJob, 6000);
+    return;
+  }
+  hideJob();
   state.region = summary;
   state.overlays = overlays;
   state.yearIdx = summary.years.length - 1;
@@ -256,7 +286,7 @@ function renderPanel(s) {
       <div class="detail">${from.toFixed(1)}% → ${to.toFixed(1)}%</div>
     </div>`;
   }).join("") + `<div class="stat-card">
-      <div class="name">Confirmed change</div>
+      <div class="name">Persistent change</div>
       <div class="value">${(s.change_fractions.event_based * 100).toFixed(1)}%</div>
       <div class="detail">of the area, ${y0}–${y1}</div>
     </div>`;

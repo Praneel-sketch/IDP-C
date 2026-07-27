@@ -94,3 +94,45 @@ def test_analyze_returns_done_for_existing_bundle(client):
     )
     assert r.status_code == 200
     assert r.json()["status"] == "done"
+
+
+def test_geocode_proxies_and_caches(client, monkeypatch):
+    from citychange import server
+
+    calls = {"n": 0}
+
+    class FakeResp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return [{"display_name": "Testville", "lat": "1.5", "lon": "2.5", "type": "city"}]
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        calls["n"] += 1
+        assert "nominatim" in url
+        assert "CityChange" in headers["User-Agent"]
+        return FakeResp()
+
+    monkeypatch.setattr(server._requests, "get", fake_get)
+    server._geo_cache.clear()
+
+    r1 = client.get("/api/geocode", params={"q": "Testville"})
+    assert r1.status_code == 200
+    assert r1.json()[0] == {"display_name": "Testville", "lat": 1.5, "lon": 2.5, "type": "city"}
+    r2 = client.get("/api/geocode", params={"q": "testville"})  # cache hit (case-folded)
+    assert r2.status_code == 200
+    assert calls["n"] == 1
+
+
+def test_geocode_failure_returns_502(client, monkeypatch):
+    from citychange import server
+    import requests as req
+
+    def fake_get(*a, **k):
+        raise req.ConnectionError("no network")
+
+    monkeypatch.setattr(server._requests, "get", fake_get)
+    server._geo_cache.clear()
+    r = client.get("/api/geocode", params={"q": "nowhere-at-all"})
+    assert r.status_code == 502

@@ -37,6 +37,7 @@ from citychange.params import DEFAULT_PARAMS
 from citychange.pipeline import bundle_dir, load_summary, run_analysis
 
 log = logging.getLogger(__name__)
+logging.getLogger("rasterio.session").setLevel(logging.WARNING)
 
 app = FastAPI(title="CityChange", version=__version__)
 

@@ -6,12 +6,18 @@ first runs download observations (a few MB per region-year).
 
 | result | command |
 |---|---|
-| unit tests (61) | `pytest` |
+| unit + API + end-to-end tests (69) | `pytest` |
 | pilot region analysis bundle | `citychange run configs/devanahalli.yaml` |
 | any ad-hoc area | `citychange run --bbox 77.63 13.17 77.73 13.27 --name my_area` |
 | 6-region geographic benchmark + comparative report | `citychange benchmark` |
 | cross-product + holdout validation for one region | `citychange validate configs/benchmark/devanahalli.yaml` |
 | web app | `citychange serve` → http://127.0.0.1:8000 |
+| pre-demo smoke check (boots server + headless browser, offline-worst-case) | `python scripts/demo_check.py` |
+
+The test suite includes a full-pipeline end-to-end run on synthetic
+observations (`tests/test_pipeline.py`) — every stage from state stacks to
+bundle artifacts executes without network, including the "stable region"
+path where nothing changed.
 
 Artifacts land in `data/outputs/<region>/`:
 

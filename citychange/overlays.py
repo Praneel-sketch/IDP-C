@@ -23,7 +23,6 @@ from rasterio.warp import Resampling, reproject
 
 from citychange.config import BBox
 from citychange.landstate import STATE_COLORS
-from citychange.trajectory import ARCHETYPE_NAMES
 
 log = logging.getLogger(__name__)
 
@@ -42,10 +41,14 @@ def _hex_to_rgb(h: str) -> tuple[int, int, int]:
 
 
 def _latlon_grid(bbox: BBox, src_shape: tuple[int, int]) -> tuple[rasterio.Affine, int, int]:
-    """A 4326 grid roughly matching the source resolution, capped in size."""
+    """A 4326 grid roughly matching the source resolution, capped in size.
+
+    Both dimensions are scaled by the same factor so pixel aspect (and thus
+    the overlay's geometry) is preserved for non-square AOIs."""
     h, w = src_shape
-    height = min(h, MAX_OVERLAY_PX)
-    width = min(w, MAX_OVERLAY_PX)
+    scale = min(1.0, MAX_OVERLAY_PX / max(h, w))
+    height = max(int(round(h * scale)), 1)
+    width = max(int(round(w * scale)), 1)
     transform = rasterio.transform.from_bounds(
         bbox.west, bbox.south, bbox.east, bbox.north, width, height
     )
@@ -124,7 +127,7 @@ class OverlayWriter:
 
     def add_year_of_change(self, yoc: np.ndarray, years: tuple[int, ...]) -> None:
         data = _to_4326(yoc.astype(np.uint16), self.src_transform, self.src_crs, self.bbox)
-        cmap = plt.get_cmap("viridis")
+        cmap = matplotlib.colormaps["viridis"]
         rgba = np.zeros((*data.shape, 4), dtype=np.uint8)
         legend = {}
         span = max(years[-1] - years[0], 1)

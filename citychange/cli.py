@@ -118,6 +118,9 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
+    # rasterio logs a harmless "boto3 not available" INFO line on every
+    # anonymous S3 read; keep demo/CI output clean.
+    logging.getLogger("rasterio.session").setLevel(logging.WARNING)
     return args.func(args)
 
 

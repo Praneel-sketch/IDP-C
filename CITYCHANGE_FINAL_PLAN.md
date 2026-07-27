@@ -193,6 +193,19 @@ relationship reported.
 
 Each milestone ended with green tests and a pushed commit.
 
+### M10 — final hardening pass (v1.1)
+
+| item | outcome |
+|---|---|
+| basemap failure fallback (offline demo safety) | frontend drops the tile layer after repeated errors, shows a notice, all local layers keep working — verified by `scripts/demo_check.py` with every external host blocked |
+| loading/error states | region-load spinner + failure message; analysis poll timeout (12 min); unknown-job and oversized-AOI errors surfaced to the user |
+| synthetic end-to-end pipeline test | `tests/test_pipeline.py` runs the REAL run_analysis on synthetic stacks (changing + fully-stable regions) with zero network — 69 tests total |
+| geocode proxy tests | mocked success/caching/failure paths |
+| production path from zero state | fresh empty data dir → API analyze of a never-seen AOI (Nairobi, tile 37M) → complete bundle in 33 s, served to the frontend |
+| deprecation/debt cleanup | `matplotlib.colormaps` API, aspect-preserving overlay cap, dead code removed, rasterio log noise silenced |
+| honesty wording | "confirms" → "meets the event criterion"; UI card "Confirmed" → "Persistent change" |
+| Docker image | built and smoke-tested in-sandbox (daemon started manually; `--network=host` needed only because the sandbox lacks a bridge) |
+
 ## 13. Risks
 
 | risk | mitigation |

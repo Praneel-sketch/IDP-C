@@ -71,3 +71,21 @@ feature that genuinely needs the data-source hosts.
   deliberately nothing to configure in `.env` for v1.0.
 - **Reverse proxy**: standard uvicorn-behind-nginx works; nothing is
   stateful outside the data volume.
+
+## Hosted demo: Hugging Face Spaces (free)
+
+A ready-made deployment kit lives in `deploy/hf/`:
+
+```bash
+citychange benchmark                       # ensure demo bundles exist locally
+HF_TOKEN=hf_xxx HF_SPACE=<user>/citychange scripts/deploy_hf.sh
+```
+
+The script stages a Space repo (app + Space Dockerfile + Space README +
+the local `data/outputs` bundles baked in as always-on demo data), and
+pushes it with the token via a temporary git credential helper (the token
+never lands in the repo, the remote URL, or the output). The Space
+Dockerfile runs as UID 1000 per Spaces rules and was container-verified
+locally. Free CPU-basic hardware is sufficient (analyses peak ~1 GB RAM);
+ephemeral storage means user-run analyses last until restart while the
+baked demo regions always remain.

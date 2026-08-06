@@ -72,6 +72,34 @@ feature that genuinely needs the data-source hosts.
 - **Reverse proxy**: standard uvicorn-behind-nginx works; nothing is
   stateful outside the data volume.
 
+## Railway
+
+The repo is Railway-ready via config-as-code — no dashboard build settings
+needed:
+
+- `railway.json` selects the **Dockerfile builder** (`docker/Dockerfile`),
+  wires the healthcheck to `/api/health` (300 s timeout) and an
+  ON_FAILURE restart policy. Docker is deliberately chosen over
+  Railpack: the image is container-verified including the non-obvious
+  GDAL system dependency (`libexpat1`) that a rebuilt-from-scratch Python
+  environment can miss.
+- The container binds `0.0.0.0:${PORT}` (Railway injects `PORT`;
+  defaults to 8000 elsewhere) and hands PID 1 to uvicorn for graceful
+  shutdown on redeploys.
+- `CITYCHANGE_PREWARM=1` (the image default): a fresh deployment with an
+  empty `/data` queues the six demo regions in the background on first
+  boot — health passes immediately and regions appear in the UI one by
+  one over ~5–10 minutes. Deployments with existing data never re-warm.
+- **Storage**: without a volume, `/data` is ephemeral — demo regions
+  re-warm automatically after each deploy, but visitor-run analyses are
+  lost. For persistence, attach a Railway volume mounted at `/data`
+  (dashboard → service → Volumes); prewarm then runs only once ever.
+- Suggested resources: 1 vCPU / 2 GB. No env vars or secrets are
+  required beyond the optional `CITYCHANGE_PREWARM`.
+
+Deploy = connect the repo/branch in Railway and push; each push to the
+connected branch redeploys. Verify with `https://<your-app>.up.railway.app/api/health`.
+
 ## Hosted demo: Hugging Face Spaces (free)
 
 A ready-made deployment kit lives in `deploy/hf/`:

@@ -1,0 +1,18 @@
+# Keep the build context to what the Dockerfile actually COPYs
+# (citychange/, frontend/, configs/, pyproject.toml, README.md).
+.git
+.venv
+venv
+data
+notebooks
+experiments
+reports
+tests
+docs
+scripts
+deploy
+docker/docker-compose.yml
+*.egg-info
+__pycache__
+**/__pycache__
+.env

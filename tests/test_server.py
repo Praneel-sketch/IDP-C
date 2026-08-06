@@ -125,6 +125,63 @@ def test_geocode_proxies_and_caches(client, monkeypatch):
     assert calls["n"] == 1
 
 
+def test_prewarm_queues_benchmark_regions_on_empty_deploy(tmp_path, monkeypatch):
+    monkeypatch.setenv("CITYCHANGE_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CITYCHANGE_PREWARM", "1")
+    from citychange import server
+
+    ran: list[str] = []
+    monkeypatch.setattr(server, "run_analysis", lambda region, params: ran.append(region.name))
+
+    with TestClient(server.app):
+        pass  # entering the context runs the lifespan startup
+
+    import time as _t
+
+    for _ in range(100):  # jobs run on the executor thread; wait for drain
+        with server._jobs_lock:
+            done = all(
+                j["status"] in ("done", "error")
+                for j in server._jobs.values()
+                if j["id"].startswith("prewarm-")
+            ) and any(j["id"].startswith("prewarm-") for j in server._jobs.values())
+        if done:
+            break
+        _t.sleep(0.05)
+
+    expected = sorted(p.stem for p in (server.REPO_ROOT / "configs" / "benchmark").glob("*.yaml"))
+    assert sorted(ran) == expected
+    with server._jobs_lock:
+        server._jobs.clear()
+
+
+def test_prewarm_skipped_when_bundles_exist(tmp_path, monkeypatch):
+    monkeypatch.setenv("CITYCHANGE_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CITYCHANGE_PREWARM", "1")
+    bundle = tmp_path / "outputs" / "existing"
+    bundle.mkdir(parents=True)
+    (bundle / "summary.json").write_text("{}")
+    from citychange import server
+
+    called = []
+    monkeypatch.setattr(server, "_enqueue_prewarm", lambda: called.append(1))
+    with TestClient(server.app):
+        pass
+    assert not called
+
+
+def test_prewarm_off_by_default(tmp_path, monkeypatch):
+    monkeypatch.setenv("CITYCHANGE_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("CITYCHANGE_PREWARM", raising=False)
+    from citychange import server
+
+    called = []
+    monkeypatch.setattr(server, "_enqueue_prewarm", lambda: called.append(1))
+    with TestClient(server.app):
+        pass
+    assert not called
+
+
 def test_geocode_failure_returns_502(client, monkeypatch):
     from citychange import server
     import requests as req

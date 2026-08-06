@@ -17,11 +17,13 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import requests as _requests
@@ -31,7 +33,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from citychange import __version__
-from citychange.config import REPO_ROOT, BBox, RegionConfig, data_dir
+from citychange.config import REPO_ROOT, BBox, RegionConfig, data_dir, load_region
 from citychange.datasets.io_annual_lulc import AVAILABLE_YEARS
 from citychange.params import DEFAULT_PARAMS
 from citychange.pipeline import bundle_dir, load_summary, run_analysis
@@ -39,7 +41,52 @@ from citychange.pipeline import bundle_dir, load_summary, run_analysis
 log = logging.getLogger(__name__)
 logging.getLogger("rasterio.session").setLevel(logging.WARNING)
 
-app = FastAPI(title="CityChange", version=__version__)
+
+def _prewarm_wanted() -> bool:
+    """True when the deployment asked for demo prewarm AND the data dir has
+    no analysed regions yet (a populated or volume-backed deployment is
+    never re-warmed)."""
+    if os.environ.get("CITYCHANGE_PREWARM", "").strip().lower() not in ("1", "true", "yes"):
+        return False
+    return not any((data_dir() / "outputs").glob("*/summary.json"))
+
+
+def _enqueue_prewarm() -> int:
+    """Queue the benchmark demo regions through the normal job machinery.
+
+    Non-blocking: the server (and its health endpoint) is up immediately;
+    regions appear in /api/regions one by one as jobs finish. Failures are
+    per-job and visible in logs, never fatal to the server.
+    """
+    n = 0
+    for cfg in sorted((REPO_ROOT / "configs" / "benchmark").glob("*.yaml")):
+        try:
+            region = load_region(cfg)
+        except Exception:
+            log.exception("prewarm: bad config %s", cfg)
+            continue
+        job_id = f"prewarm-{region.name}"
+        with _jobs_lock:
+            _jobs[job_id] = {
+                "id": job_id,
+                "region": region.name,
+                "status": "queued",
+                "started": time.time(),
+            }
+        _executor.submit(_run_job, job_id, region)
+        n += 1
+    return n
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    if _prewarm_wanted():
+        n = _enqueue_prewarm()
+        log.info("prewarm: queued %d demo regions (background)", n)
+    yield
+
+
+app = FastAPI(title="CityChange", version=__version__, lifespan=_lifespan)
 
 # One analysis at a time: a region run peaks at a few hundred MB of RAM;
 # serialization keeps the demo host healthy. Queued jobs wait.

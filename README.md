@@ -9,7 +9,7 @@ from open satellite-derived observations: what changed, when, along which
 trajectory, how unusual that trajectory is, and how strong the evidence
 is — with inspectable before/after imagery.
 
-**Status: v1.0** — full pipeline, 6-region validation benchmark, web app,
+**Status: v1.0** — full pineline, 6-region validation benchmark, web app,
 API, evaluation suite. Built as a year-long academic project.
 
 ![City Time Machine](docs/img/frontend_home.png)
